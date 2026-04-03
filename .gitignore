@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.spec.bak
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# PyInstaller output
+dist/
+build/
+
+# Inno Setup output
+Output/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test files
+*.ifc
+*.dxf
+test.png

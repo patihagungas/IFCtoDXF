@@ -1,0 +1,16 @@
+# IFC → DXF Converter — Python dependencies
+#
+# Install with:   pip install -r requirements.txt
+#
+# NOTE: ifcopenshell is NOT on PyPI for all platforms.
+#   Recommended install (any OS, any Python):
+#     pip install ifcopenshell
+#   If that fails, use the official conda channel:
+#     conda install -c ifcopenshell ifcopenshell
+#   Or download a pre-built wheel from:
+#     https://github.com/IfcOpenShell/IfcOpenShell/releases
+
+ifcopenshell          # IFC parsing + geometry kernel
+ezdxf>=1.1.0          # DXF read/write
+customtkinter>=5.2.0  # Modern Tkinter UI framework
+pyinstaller>=6.0      # Packaging (dev-only, not needed at runtime)
