@@ -5,10 +5,12 @@ A desktop application for converting IFC (Industry Foundation Classes) building 
 ## What It Does
 
 - **Scans IFC files** and lists all building elements (structural, architectural, MEP, etc.) in a searchable table with metadata: Tag/Mark, Name, IFC Class, Type, and Properties
+- **Checkbox selection** — tick elements individually; checkmarks persist across search/filter changes so you can search for different tags and build up a batch without losing your selection
 - **3D Preview** — view any selected element in an embedded viewer with Shaded, Wireframe, and Shaded+Edges render modes; supports rotate, pan, and zoom
-- **Converts to DXF** — exports selected elements as individual `.dxf` files, one per element named after its Tag/Mark value
-- **Assembly decomposition** — `IfcElementAssembly` objects (trusses, frames, panels) are walked recursively and merged into a single DXF block
-- **AutoCAD-ready output** — uses POLYFACE MESH with invisible-edge flags (negative vertex indices) to eliminate phantom diagonal lines; ACI color per IFC class; automatic unit scaling to mm
+- **Converts to DXF** — exports all checked elements as individual `.dxf` files, one per element named after its Tag/Mark value
+- **Assembly decomposition** — `IfcElementAssembly` objects (trusses, frames, panels) are walked recursively and merged into a single DXF block per assembly
+- **AutoCAD-ready output** — geometry is exported as 3DFACE entities inside a named BLOCK (block name = element Tag); feature-edge visibility flags hide smooth interior triangle edges so only real corners and outlines appear in wireframe; full ACI colour per IFC class in all visual styles (Wireframe, Hidden, Shaded, Realistic, Conceptual); geometry is centred at the origin with correct extents so the element fills the viewport on open
+- **Correct scale** — coordinates are always exported in millimetres regardless of the IFC project unit declaration
 
 ## Requirements
 
@@ -46,7 +48,7 @@ A desktop application for converting IFC (Industry Foundation Classes) building 
 
 ### Option 2 — Windows installer
 
-Download the pre-built installer (`IFC2DXF_Setup_v1.0.0.exe`) from the Releases page and run it. No Python installation required. The installer does not require administrator rights.
+Download the pre-built installer (`IFC2DXF_Setup_v1.0.0.exe`) from the Releases page and run it. No Python installation required.
 
 ### Option 3 — Build the installer yourself
 
@@ -63,11 +65,39 @@ Download the pre-built installer (`IFC2DXF_Setup_v1.0.0.exe`) from the Releases 
 ## Usage
 
 1. Launch the app (`python main.py` or the installed `.exe`).
-2. Click **Open IFC File** and select your `.ifc` file.
-3. The table populates with all detected elements. Use the search bar to filter by name, tag, or class.
-4. Select an element and click **Preview** to view it in 3D.
-5. Check the elements you want to export, choose an output folder, and click **Convert to DXF**.
-6. One `.dxf` file per element is written to the chosen folder, named after each element's Tag/Mark value.
+2. Click **Browse** next to IFC File and select your `.ifc` file — the scan runs automatically.
+3. The table populates with all detected elements. Use the search bar to filter by tag, name, or IFC class.
+4. **Tick the ☐ checkbox** on each row you want to export. Checkmarks survive filtering — search for more tags and keep ticking without losing previous selections.
+5. Click **All** to check all currently visible rows, or **None** to uncheck them.
+6. Click a row (outside the checkbox) to select it and view its full properties in the right panel.
+7. With exactly one row selected, click **👁 Preview** to view the element in 3D.
+8. Choose an output folder and click **▶ Convert Checked (N)**.
+9. One `.dxf` file per element is written to the chosen folder, named after the element's Tag/Mark.
+
+## DXF Output Format
+
+| Feature | Detail |
+|---|---|
+| Entity type | `3DFACE` (triangulated mesh) |
+| Block name | Element Tag/Mark |
+| Edge visibility | Feature-edge only — smooth interior edges hidden, real corners visible |
+| Colour | ACI per IFC class (walls=red, columns=cyan, beams=green, …) |
+| Units | Millimetres (`$INSUNITS = 4`) |
+| Origin | Bounding-box centre of element geometry |
+| Visual styles | Works in Wireframe, Hidden, Shaded, Realistic, Conceptual |
+
+## ACI Colour Map
+
+| IFC Class | AutoCAD Colour |
+|---|---|
+| IfcColumn | Cyan (4) |
+| IfcBeam / IfcMember | Green (3) / Olive (62) |
+| IfcWall | Red (1) |
+| IfcSlab | Orange (30) |
+| IfcDoor | Blue (5) |
+| IfcWindow | Magenta (6) |
+| IfcStair | Dark orange (40) |
+| IfcFurnishingElement | Navy (90) |
 
 ## Dependencies
 
@@ -83,8 +113,8 @@ Download the pre-built installer (`IFC2DXF_Setup_v1.0.0.exe`) from the Releases 
 ```
 IFCreader/
 ├── main.py               # Entry point
-├── gui.py                # Desktop UI and 3D preview window
-├── converter_engine.py   # IFC parsing and DXF conversion logic
+├── gui.py                # Desktop UI, checkbox table, and 3D preview window
+├── converter_engine.py   # IFC parsing, geometry extraction, and DXF export
 ├── requirements.txt      # Python dependencies
 ├── ifc2dxf.spec          # PyInstaller build configuration
 └── installer.iss         # Inno Setup Windows installer script

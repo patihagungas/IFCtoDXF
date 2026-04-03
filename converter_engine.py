@@ -150,11 +150,10 @@ def _get_material_name(element) -> str:
 
 
 def _unit_scale_to_mm(model) -> float:
-    """Multiply IFC world-coords by this to get millimetres."""
-    try:
-        return ifcopenshell.util.unit.calculate_unit_scale(model) * 1000.0
-    except Exception:
-        return 1.0
+    """Multiply IFC world-coords by this to get millimetres.
+    With USE_WORLD_COORDS=True ifcopenshell always returns SI metres,
+    so the scale is always ×1000 regardless of the IFC project unit."""
+    return 1000.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -492,11 +491,22 @@ class ConversionEngine:
 
             doc.layers.new(name=layer, dxfattribs={"color": color})
 
-            bname = re.sub(r"[^A-Za-z0-9_\-]", "_", tag)[:30] + \
-                    f"_{element.GlobalId[:6]}"
+            bname = re.sub(r"[^A-Za-z0-9_\-]", "_", tag)
             blk = doc.blocks.new(name=bname)
-            mesh_count = 0
 
+            import math as _math
+            CREASE = _math.radians(25)
+
+            def _tri_normal(a, b, c):
+                ax, ay, az = b[0]-a[0], b[1]-a[1], b[2]-a[2]
+                bx, by, bz = c[0]-a[0], c[1]-a[1], c[2]-a[2]
+                nx, ny, nz = ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx
+                l = _math.sqrt(nx*nx + ny*ny + nz*nz)
+                return (nx/l, ny/l, nz/l) if l > 1e-12 else (0.0, 0.0, 1.0)
+
+            # ── Pass 1: collect geometry from all parts ───────────────
+            parts_data = []
+            all_verts_flat = []
             for part in geo_sources:
                 try:
                     shape = ifcopenshell.geom.create_shape(gs, part)
@@ -512,46 +522,74 @@ class ConversionEngine:
                     skip_log.append(f"  ✗ part {_get_tag(part)} of {tag}: empty geometry")
                     continue
 
-                verts = [
-                    Vec3(vf[i]*scale, vf[i+1]*scale, vf[i+2]*scale)
-                    for i in range(0, len(vf), 3)
-                ]
-                faces = [(ff[i], ff[i+1], ff[i+2]) for i in range(0, len(ff), 3)]
+                verts = [(vf[i]*scale, vf[i+1]*scale, vf[i+2]*scale)
+                         for i in range(0, len(vf), 3)]
+                all_verts_flat.extend(verts)
+                parts_data.append((part, verts, ff))
+
+            if not parts_data:
+                skip_log.append(f"  ✗ {tag}: no mesh produced")
+                self._status(f"  ✗ Skipped {tag}: no geometry")
+                skipped += 1
+                continue
+
+            # ── Centre geometry at origin (bounding-box midpoint) ─────
+            xs = [v[0] for v in all_verts_flat]
+            ys = [v[1] for v in all_verts_flat]
+            zs = [v[2] for v in all_verts_flat]
+            cx = (min(xs) + max(xs)) / 2
+            cy = (min(ys) + max(ys)) / 2
+            cz = (min(zs) + max(zs)) / 2
+            hw = (max(xs) - min(xs)) / 2
+            hh = (max(ys) - min(ys)) / 2
+            hd = (max(zs) - min(zs)) / 2
+
+            # Set drawing extents so AutoCAD zoom-extents works correctly
+            doc.header["$EXTMIN"] = (-hw, -hh, -hd)
+            doc.header["$EXTMAX"] = ( hw,  hh,  hd)
+            doc.header["$LIMMIN"] = (-hw, -hh)
+            doc.header["$LIMMAX"] = ( hw,  hh)
+
+            # ── Pass 2: build feature-edge 3DFACEs inside block ──────
+            mesh_count = 0
+            for part, raw_verts, ff in parts_data:
+                verts = [(x-cx, y-cy, z-cz) for x, y, z in raw_verts]
 
                 part_color = _color_for(part)
                 part_layer = re.sub(r"[^A-Za-z0-9_\-]", "_", part.is_a())
                 if part_layer not in doc.layers:
                     doc.layers.new(name=part_layer, dxfattribs={"color": part_color})
 
-                # POLYFACE MESH — compact, AutoCAD-native format.
-                # Using negative vertex indices in face records marks every
-                # edge as invisible, eliminating phantom diagonal ghost lines
-                # while keeping solid shaded rendering intact.
-                valid_faces = [
-                    (fi, fj, fk) for fi, fj, fk in faces
-                    if fi < len(verts) and fj < len(verts) and fk < len(verts)
-                ]
-                if not valid_faces:
-                    continue
+                nv = len(verts)
+                tris = [(ff[i], ff[i+1], ff[i+2])
+                        for i in range(0, len(ff), 3)
+                        if ff[i] < nv and ff[i+1] < nv and ff[i+2] < nv]
 
-                pf = blk.add_polyface(dxfattribs={
-                    "layer": part_layer,
-                    "color": part_color,
-                })
-                pf.append_vertices(verts)
-                for fi, fj, fk in valid_faces:
-                    pf.append_face([fi, fj, fk])
+                normals = [_tri_normal(verts[fi], verts[fj], verts[fk])
+                           for fi, fj, fk in tris]
 
-                # Negate every face-record index → hides all edges in AutoCAD.
-                # DXF POLYFACE spec: negative index = that edge is invisible.
-                for v in pf.vertices:
-                    if v.dxf.flags & 128 and not (v.dxf.flags & 64):
-                        for attr in ("vtx0", "vtx1", "vtx2", "vtx3"):
-                            if v.dxf.hasattr(attr):
-                                val = getattr(v.dxf, attr)
-                                if val > 0:
-                                    setattr(v.dxf, attr, -val)
+                edge_normals: Dict[tuple, List] = {}
+                for ti, (fi, fj, fk) in enumerate(tris):
+                    for a, b in ((fi, fj), (fj, fk), (fk, fi)):
+                        edge_normals.setdefault((min(a,b), max(a,b)), []).append(normals[ti])
 
+                def _feature(a, b):
+                    ns = edge_normals.get((min(a,b), max(a,b)), [])
+                    if len(ns) != 2:
+                        return True
+                    dot = max(-1.0, min(1.0, sum(ns[0][i]*ns[1][i] for i in range(3))))
+                    return _math.acos(dot) > CREASE
+
+                for fi, fj, fk in tris:
+                    inv = 4
+                    if not _feature(fi, fj): inv |= 1
+                    if not _feature(fj, fk): inv |= 2
+                    if not _feature(fk, fi): inv |= 8
+                    blk.add_3dface(
+                        [verts[fi], verts[fj], verts[fk], verts[fk]],
+                        dxfattribs={"layer": part_layer, "color": part_color,
+                                    "invisible_edges": inv},
+                    )
                 mesh_count += 1
 
             if mesh_count == 0:

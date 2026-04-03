@@ -414,6 +414,7 @@ class App(ctk.CTk):
         self._ifc_model  = None
         self._all_rows: list[dict] = []
         self._engine: ConversionEngine | None = None
+        self._checked: set[str] = set()   # GUIDs that are checked
 
         self._style_tree()
         self._build_ui()
@@ -500,10 +501,10 @@ class App(ctk.CTk):
                      height=28, width=190, font=ctk.CTkFont(size=12)
                      ).pack(side="left", padx=(4, 8))
         ctk.CTkButton(ctrl, text="All", width=50, height=28,
-                      command=self._select_all).pack(side="left", padx=(0, 4))
+                      command=self._check_all).pack(side="left", padx=(0, 4))
         ctk.CTkButton(ctrl, text="None", width=54, height=28,
                       fg_color="#3a3a3a", hover_color="#222",
-                      command=self._clear_sel).pack(side="left", padx=(0, 8))
+                      command=self._check_none).pack(side="left", padx=(0, 8))
         self._prev_btn = ctk.CTkButton(
             ctrl, text="👁 Preview", width=90, height=28,
             fg_color="#1a3a2a", hover_color="#0a2a1a",
@@ -518,10 +519,11 @@ class App(ctk.CTk):
         # Treeview
         tf = ctk.CTkFrame(left, fg_color=_BG_TABLE, corner_radius=6)
         tf.pack(fill="both", expand=True)
-        cols = ("tag", "name", "ifc_class", "type_name", "parts")
+        cols = ("check", "tag", "name", "ifc_class", "type_name", "parts")
         self._tree = ttk.Treeview(tf, columns=cols, show="headings",
-                                  selectmode="extended", style="T.Treeview")
+                                  selectmode="browse", style="T.Treeview")
         for col, hdr_txt, w, stretch in [
+            ("check",     "",             28, False),
             ("tag",       "Tag / Mark",  150, False),
             ("name",      "Name",        200, True),
             ("ifc_class", "IFC Class",   140, False),
@@ -529,12 +531,13 @@ class App(ctk.CTk):
             ("parts",     "Parts",        54, False),
         ]:
             self._tree.heading(col, text=hdr_txt, anchor="w")
-            self._tree.column(col, width=w, minwidth=50, stretch=stretch)
+            self._tree.column(col, width=w, minwidth=w, stretch=stretch)
         vsb = ttk.Scrollbar(tf, orient="vertical", command=self._tree.yview)
         self._tree.configure(yscrollcommand=vsb.set)
         vsb.pack(side="right", fill="y")
         self._tree.pack(fill="both", expand=True, padx=2, pady=2)
         self._tree.bind("<<TreeviewSelect>>", self._on_select)
+        self._tree.bind("<Button-1>", self._on_click)
 
         # Sash
         ctk.CTkFrame(split, width=1, fg_color="#2a2a2a"
@@ -619,6 +622,7 @@ class App(ctk.CTk):
         self._progress.set(0)
         self._ifc_model = None
         self._all_rows  = []
+        self._checked.clear()
         self._clear_tree()
         self._clear_props()
         self._set_status("Scanning IFC…")
@@ -657,8 +661,9 @@ class App(ctk.CTk):
         self._clear_tree()
         for r in rows:
             n = r.get("n_parts", 0)
+            chk = "☑" if r["guid"] in self._checked else "☐"
             self._tree.insert("", "end", iid=r["guid"],
-                              values=(r["tag"], r["name"],
+                              values=(chk, r["tag"], r["name"],
                                       r["ifc_class"], r["type_name"],
                                       f"[{n}]" if n else ""))
         self._update_count()
@@ -675,26 +680,51 @@ class App(ctk.CTk):
         ]
         self._populate_tree(filtered)
 
-    def _select_all(self) -> None:
-        kids = self._tree.get_children()
-        if kids:
-            self._tree.selection_set(kids)
+    def _on_click(self, event) -> None:
+        """Toggle checkbox when the check column is clicked."""
+        col = self._tree.identify_column(event.x)
+        row = self._tree.identify_row(event.y)
+        if row and col == "#1":   # check column
+            self._toggle_check(row)
+
+    def _toggle_check(self, guid: str) -> None:
+        if guid in self._checked:
+            self._checked.discard(guid)
+            chk = "☐"
+        else:
+            self._checked.add(guid)
+            chk = "☑"
+        vals = list(self._tree.item(guid, "values"))
+        vals[0] = chk
+        self._tree.item(guid, values=vals)
         self._update_count()
 
-    def _clear_sel(self) -> None:
-        self._tree.selection_remove(self._tree.selection())
+    def _check_all(self) -> None:
+        for guid in self._tree.get_children():
+            self._checked.add(guid)
+            vals = list(self._tree.item(guid, "values"))
+            vals[0] = "☑"
+            self._tree.item(guid, values=vals)
+        self._update_count()
+
+    def _check_none(self) -> None:
+        for guid in self._tree.get_children():
+            self._checked.discard(guid)
+            vals = list(self._tree.item(guid, "values"))
+            vals[0] = "☐"
+            self._tree.item(guid, values=vals)
         self._update_count()
 
     def _update_count(self) -> None:
-        sel   = len(self._tree.selection())
-        total = len(self._tree.get_children())
-        self._count_lbl.configure(text=f"{sel} / {total}")
+        checked = len(self._checked)
+        total   = len(self._tree.get_children())
+        self._count_lbl.configure(text=f"{checked} checked / {total} shown")
         self._convert_btn.configure(
-            text=f"▶  Convert Selected  ({sel})",
-            state="normal" if sel > 0 else "disabled")
-        # Preview only when exactly 1 selected
+            text=f"▶  Convert Checked  ({checked})",
+            state="normal" if checked > 0 else "disabled")
+        sel = self._tree.selection()
         self._prev_btn.configure(
-            state="normal" if sel == 1 else "disabled")
+            state="normal" if len(sel) == 1 else "disabled")
 
     # ── Selection → properties ────────────────────────────────────────────────
 
@@ -704,10 +734,8 @@ class App(ctk.CTk):
         if len(sel) == 1:
             threading.Thread(target=self._fetch_props, args=(sel[0],),
                              daemon=True).start()
-        elif not sel:
-            self.after(0, self._clear_props)
         else:
-            self.after(0, self._show_multi, len(sel))
+            self.after(0, self._clear_props)
 
     def _fetch_props(self, guid: str) -> None:
         if self._ifc_model is None:
@@ -813,7 +841,7 @@ class App(ctk.CTk):
     def _start_conversion(self) -> None:
         ifc   = self._ifc_path.get().strip()
         outd  = self._out_dir.get().strip()
-        guids = list(self._tree.selection())
+        guids = list(self._checked)
 
         if not ifc or not os.path.isfile(ifc):
             messagebox.showerror("Error", "IFC file not found.")
@@ -822,7 +850,7 @@ class App(ctk.CTk):
             messagebox.showerror("Error", "Please choose an output folder.")
             return
         if not guids:
-            messagebox.showerror("Error", "Select at least one element.")
+            messagebox.showerror("Error", "Check at least one element.")
             return
 
         self._convert_btn.configure(state="disabled")
