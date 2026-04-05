@@ -25,6 +25,7 @@ AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}
 AppUpdatesURL={#AppURL}
+AppComments=Convert IFC building models into AutoCAD-ready DXF files. Supports all structural, architectural, and MEP elements with 3D preview and batch export.
 
 ; ── Install location ───────────────────────────────────────────────────────
 DefaultDirName={autopf}\{#AppName}
@@ -34,25 +35,43 @@ DisableProgramGroupPage=yes
 ; ── Output installer file ──────────────────────────────────────────────────
 OutputDir=Output
 OutputBaseFilename=IFC2DXF_Setup_v{#AppVersion}
-SetupIconFile=assets\icon.ico      ; Remove this line if you have no icon
+SetupIconFile=P.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 
 ; ── Appearance ────────────────────────────────────────────────────────────
 WizardStyle=modern
-; WizardImageFile=assets\wizard_banner.bmp   ; 164x314 px (optional)
-; WizardSmallImageFile=assets\wizard_logo.bmp ; 55x55 px  (optional)
+WizardImageFile=wizard_banner.bmp
+WizardSmallImageFile=wizard_logo.bmp
 
 ; ── Privileges ────────────────────────────────────────────────────────────
 PrivilegesRequiredOverridesAllowed=dialog
-PrivilegesRequired=lowest           ; Does NOT require admin (installs per-user)
+PrivilegesRequired=lowest
 
 ; ── Misc ──────────────────────────────────────────────────────────────────
+DisableWelcomePage=no
 ShowLanguageDialog=no
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Messages]
+; ── Welcome page ──────────────────────────────────────────────────────────
+WelcomeLabel1=Welcome to {#AppName} Setup
+WelcomeLabel2=What is {#AppName}?%n{#AppName} converts IFC building models into DXF files for use in AutoCAD and other CAD software.%n%n--------------------------------------------------%nThis Software was Made by Path.%nIf you got this Software from someone else - screw it.%nThis software is for our people to make the job easier.%nScrew your boss and everyone who keeps forcing the impossible job on us. F em.%n%n- P.s Have fun and Enjoy the work.%n--------------------------------------------------
+
+; ── Ready to install page ─────────────────────────────────────────────────
+ReadyLabel1=Ready to Install
+ReadyLabel2a=Setup is ready to install {#AppName} on your computer.
+ReadyLabel2b=Click Install to proceed, or click Back to review or change any settings.
+
+; ── Installing page ───────────────────────────────────────────────────────
+InstallingLabel=Please wait while Setup installs {#AppName} on your computer...
+
+; ── Finish page ───────────────────────────────────────────────────────────
+FinishedHeadingLabel=Completing {#AppName} Setup
+FinishedLabel=Setup has successfully installed {#AppName} on your computer.%n%nYou can now convert IFC files to DXF from the Start Menu or Desktop shortcut.%n%nGood Luck and Have Fun as Usual.
 
 [Tasks]
 Name: "desktopicon";    Description: "Create a &Desktop shortcut";       GroupDescription: "Additional icons:"; Flags: unchecked

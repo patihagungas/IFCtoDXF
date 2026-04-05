@@ -22,10 +22,13 @@ ifc_datas, ifc_binaries, ifc_hiddenimports = collect_all("ifcopenshell")
 # ── Gather customtkinter theme/image assets ───────────────────────────────────
 ctk_datas, ctk_binaries, ctk_hiddenimports = collect_all("customtkinter")
 
+# ── Gather numpy (required by ifcopenshell.sql) ───────────────────────────────
+np_datas, np_binaries, np_hiddenimports = collect_all("numpy")
+
 # ── Merge ─────────────────────────────────────────────────────────────────────
-all_datas    = ifc_datas    + ctk_datas
-all_binaries = ifc_binaries + ctk_binaries
-all_hidden   = ifc_hiddenimports + ctk_hiddenimports + [
+all_datas    = ifc_datas    + ctk_datas + np_datas + [("P.ico", ".")]
+all_binaries = ifc_binaries + ctk_binaries + np_binaries
+all_hidden   = ifc_hiddenimports + ctk_hiddenimports + np_hiddenimports + [
     "ifcopenshell",
     "ifcopenshell.geom",
     "ifcopenshell.util",
@@ -43,6 +46,9 @@ all_hidden   = ifc_hiddenimports + ctk_hiddenimports + [
     "PIL",          # Pillow — used by customtkinter for image rendering
     "PIL.Image",
     "PIL.ImageTk",
+    "numpy",
+    "numpy.core",
+    "numpy.core._multiarray_umath",
 ]
 
 block_cipher = None
@@ -56,7 +62,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["matplotlib", "numpy", "scipy", "pandas", "pytest"],
+    excludes=["matplotlib", "scipy", "pandas", "pytest"],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -81,7 +87,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon="assets/icon.ico",   # Uncomment and add your .ico file
+    icon="P.ico",
 )
 
 coll = COLLECT(

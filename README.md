@@ -1,6 +1,8 @@
-# IFCReader — IFC to DXF Converter
+# Path IFC to DXF
 
 A desktop application for converting IFC (Industry Foundation Classes) building models into DXF (Drawing Exchange Format) files, with a built-in 3D preview and element inspector.
+
+Made by **Path**.
 
 ## What It Does
 
@@ -60,7 +62,11 @@ Download the pre-built installer (`IFC2DXF_Setup_v1.0.0.exe`) from the Releases 
    ```
    Output is placed in `dist\IFC2DXF\`.
 
-3. Open `installer.iss` in [Inno Setup Compiler](https://jrsoftware.org/isinfo.php) and press `Ctrl+F9` to compile. The installer will be generated at `Output\IFC2DXF_Setup_v1.0.0.exe`.
+3. Install [Inno Setup 6](https://jrsoftware.org/isdl.php) and compile the installer:
+   ```bash
+   ISCC.exe installer.iss
+   ```
+   The installer will be generated at `Output\IFC2DXF_Setup_v1.0.0.exe`.
 
 ## Usage
 
@@ -104,6 +110,7 @@ Download the pre-built installer (`IFC2DXF_Setup_v1.0.0.exe`) from the Releases 
 | Package | Purpose |
 |---|---|
 | `ifcopenshell` | IFC parsing and geometry kernel |
+| `numpy` | Required by ifcopenshell |
 | `ezdxf >= 1.1.0` | DXF read/write |
 | `customtkinter >= 5.2.0` | Modern dark-themed UI framework |
 | `pyinstaller >= 6.0` | Build standalone executable (dev only) |
@@ -111,11 +118,15 @@ Download the pre-built installer (`IFC2DXF_Setup_v1.0.0.exe`) from the Releases 
 ## Project Structure
 
 ```
-IFCreader/
+IFCtoDXF/
 ├── main.py               # Entry point
 ├── gui.py                # Desktop UI, checkbox table, and 3D preview window
 ├── converter_engine.py   # IFC parsing, geometry extraction, and DXF export
 ├── requirements.txt      # Python dependencies
 ├── ifc2dxf.spec          # PyInstaller build configuration
-└── installer.iss         # Inno Setup Windows installer script
+├── installer.iss         # Inno Setup Windows installer script
+├── P.ico                 # Application icon
+├── IFC.png               # Installer sidebar image
+├── wizard_banner.bmp     # Installer sidebar image (164x314)
+└── wizard_logo.bmp       # Installer top-right logo (55x55)
 ```
