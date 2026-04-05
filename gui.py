@@ -402,7 +402,8 @@ class App(ctk.CTk):
 
     def __init__(self) -> None:
         super().__init__()
-        self.title("IFC → DXF Converter")
+        self.title("Path IFC to DXF")
+        self.iconbitmap(os.path.join(os.path.dirname(__file__), "P.ico"))
         self.geometry(f"{self.W}x{self.H}")
         self.minsize(860, 600)
 
@@ -440,11 +441,11 @@ class App(ctk.CTk):
         hdr = ctk.CTkFrame(self, fg_color=_BG_HEADER, corner_radius=0, height=58)
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
-        ctk.CTkLabel(hdr, text="IFC  →  DXF  Converter",
+        ctk.CTkLabel(hdr, text="IFC  to  DXF",
                      font=ctk.CTkFont(size=21, weight="bold"),
                      text_color=_ACCENT).place(relx=0.5, rely=0.5, anchor="center")
-        ctk.CTkLabel(hdr, text="IfcOpenShell + ezdxf",
-                     font=ctk.CTkFont(size=10), text_color="#334455"
+        ctk.CTkLabel(hdr, text="Made by Path",
+                     font=ctk.CTkFont(size=10), text_color="#8B8B8B"
                      ).place(relx=0.99, rely=0.82, anchor="se")
 
         wrap = ctk.CTkFrame(self, fg_color="transparent")
