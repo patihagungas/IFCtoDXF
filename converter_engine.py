@@ -115,6 +115,43 @@ def _get_tag(element) -> str:
     return _s(tag or name or element.GlobalId[:8])
 
 
+def _get_prefix(element) -> str:
+    """Get Prefix / Mark from psets (mirrors get_element_details prefix logic)."""
+    # Same keys as get_element_details — Reference from Pset_BeamCommon etc. counts as prefix
+    _PREFIX_KEYS = {"prefix", "mark", "reference", "objectmark", "elementmark"}
+    try:
+        psets = ifcopenshell.util.element.get_psets(element, should_inherit=True)
+        for pset_props in psets.values():
+            if not isinstance(pset_props, dict):
+                continue
+            for key, val in pset_props.items():
+                kl = key.lower().replace(" ", "").replace("_", "")
+                if kl in _PREFIX_KEYS:
+                    sv = _s(val)
+                    if sv:
+                        return sv
+    except Exception:
+        pass
+    return ""
+
+
+def _get_reference(element) -> str:
+    """Get Reference property from psets (e.g. Pset_BeamCommon), including type-inherited."""
+    try:
+        psets = ifcopenshell.util.element.get_psets(element, should_inherit=True)
+        for pset_props in psets.values():
+            if not isinstance(pset_props, dict):
+                continue
+            for key, val in pset_props.items():
+                if key == "Reference":
+                    sv = _s(val)
+                    if sv:
+                        return sv
+    except Exception:
+        pass
+    return ""
+
+
 def _get_type_name(element) -> str:
     try:
         t = ifcopenshell.util.element.get_type(element)
@@ -237,13 +274,18 @@ def scan_ifc(
 
         n_parts = _count_parts(el)
         rows.append({
-            "guid":      el.GlobalId,
-            "tag":       _get_tag(el),
-            "name":      _s(getattr(el, "Name", "")),
-            "ifc_class": el.is_a(),
-            "type_name": _get_type_name(el),
-            "color":     _color_for(el),
-            "n_parts":   n_parts,   # 0 = leaf element, >0 = assembly
+            "guid":            el.GlobalId,
+            "tag":             _get_tag(el),
+            "name":            _s(getattr(el, "Name", "")),
+            "description":     _s(getattr(el, "Description", "")),
+            "ifc_class":       el.is_a(),
+            "predefined_type": _s(getattr(el, "PredefinedType", "")),
+            "type_name":       _get_type_name(el),
+            "material":        _get_material_name(el),
+            "prefix":          _get_prefix(el),
+            "reference":       _get_reference(el),
+            "color":           _color_for(el),
+            "n_parts":         n_parts,   # 0 = leaf element, >0 = assembly
         })
 
     if progress_cb:
@@ -475,14 +517,16 @@ class ConversionEngine:
                 return
 
             self._progress(int(idx / total * 100))
-            tag   = _get_tag(element)
-            color = _color_for(element)
-            layer = re.sub(r"[^A-Za-z0-9_\-]", "_", element.is_a())
+            tag    = _get_tag(element)
+            prefix = _get_prefix(element)
+            label  = prefix or tag   # use prefix for block name + filename when available
+            color  = _color_for(element)
+            layer  = re.sub(r"[^A-Za-z0-9_\-]", "_", element.is_a())
 
             geo_sources = _collect_geometry_sources(element)
             is_asm = not (len(geo_sources) == 1 and geo_sources[0] is element)
-            label  = f"(assembly: {len(geo_sources)} parts)" if is_asm else ""
-            self._status(f"[{idx+1}/{total}]  {element.is_a()} — {tag}  {label}")
+            asm_label = f"(assembly: {len(geo_sources)} parts)" if is_asm else ""
+            self._status(f"[{idx+1}/{total}]  {element.is_a()} — {label}  {asm_label}")
 
             # ── Fresh DXF doc per element ─────────────────────────────
             doc = ezdxf.new(dxfversion="R2010")
@@ -491,7 +535,7 @@ class ConversionEngine:
 
             doc.layers.new(name=layer, dxfattribs={"color": color})
 
-            bname = re.sub(r"[^A-Za-z0-9_\-]", "_", tag)
+            bname = re.sub(r"[^A-Za-z0-9_\-]", "_", label)
             blk = doc.blocks.new(name=bname)
 
             import math as _math
@@ -600,11 +644,11 @@ class ConversionEngine:
 
             msp.add_blockref(bname, (0.0, 0.0, 0.0), dxfattribs={"layer": layer})
 
-            # ── Save as {tag}.dxf ─────────────────────────────────────
-            fname = _safe_filename(tag) + ".dxf"
+            # ── Save as {prefix or tag}.dxf ──────────────────────────
+            fname = _safe_filename(label) + ".dxf"
             if fname in used_filenames:
                 n = 2
-                base = _safe_filename(tag)
+                base = _safe_filename(label)
                 while f"{base}_{n}.dxf" in used_filenames:
                     n += 1
                 fname = f"{base}_{n}.dxf"

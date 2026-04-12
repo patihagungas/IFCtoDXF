@@ -50,7 +50,7 @@ Made by **Path**.
 
 ### Option 2 — Windows installer
 
-Download the pre-built installer (`IFC2DXF_Setup_v1.0.0.exe`) from the Releases page and run it. No Python installation required.
+Download the pre-built installer (`IFC2DXF_Setup_v1.0.1.exe`) from the Releases page and run it. No Python installation required.
 
 ### Option 3 — Build the installer yourself
 
@@ -66,7 +66,7 @@ Download the pre-built installer (`IFC2DXF_Setup_v1.0.0.exe`) from the Releases 
    ```bash
    ISCC.exe installer.iss
    ```
-   The installer will be generated at `Output\IFC2DXF_Setup_v1.0.0.exe`.
+   The installer will be generated at `Output\IFC2DXF_Setup_v1.0.1.exe`.
 
 ## Usage
 
@@ -114,6 +114,20 @@ Download the pre-built installer (`IFC2DXF_Setup_v1.0.0.exe`) from the Releases 
 | `ezdxf >= 1.1.0` | DXF read/write |
 | `customtkinter >= 5.2.0` | Modern dark-themed UI framework |
 | `pyinstaller >= 6.0` | Build standalone executable (dev only) |
+
+## Changelog
+
+### v1.0.1
+- **Prefix detection** — Scans `Pset_BeamCommon.Reference` (and equivalent psets) at load time using `should_inherit=True` so type-level properties are included. The Prefix value is now shown as a dedicated column in the element table.
+- **Prefix-based filenames** — DXF output files and block names now use the Prefix when available (e.g. `RB1001.dxf`), falling back to Tag only when no prefix is found.
+- **Expanded search** — Search bar now matches against Prefix, Material, Description, and Predefined Type in addition to Tag, Name, and IFC Class.
+- **Paste & Select** — New dialog lets you paste a list of marks/references (newline, comma, tab, or semicolon separated) and auto-checks all matching elements. Includes a "First match only" option to skip duplicates.
+- **Copy List** — Copies all checked rows to the clipboard as TSV (Tab-Separated Values) ready to paste into Excel. Columns: Tag, Prefix, Name, IFC Class, Predefined Type, Type, Reference, Material, Description.
+- **Larger checkboxes** — Row height increased from 26 to 32 px; checkbox column widened for easier clicking.
+- **UI layout fix** — Paste & Select dialog buttons are now always visible regardless of window size.
+
+### v1.0.0
+- Initial release.
 
 ## Project Structure
 
