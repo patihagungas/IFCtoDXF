@@ -425,7 +425,7 @@ class App(ctk.CTk):
         s.theme_use("default")
         s.configure("T.Treeview",
             background=_BG_TABLE, foreground=_FG_TABLE,
-            fieldbackground=_BG_TABLE, rowheight=26, font=_FONT_TABLE,
+            fieldbackground=_BG_TABLE, rowheight=32, font=_FONT_TABLE,
             borderwidth=0, relief="flat")
         s.configure("T.Treeview.Heading",
             background=_HDG_BG, foreground=_HDG_FG,
@@ -492,43 +492,54 @@ class App(ctk.CTk):
         left = ctk.CTkFrame(split, fg_color="transparent")
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
 
-        # Search + controls
+        # Search row
         ctrl = ctk.CTkFrame(left, fg_color="transparent")
-        ctrl.pack(fill="x", pady=(0, 6))
+        ctrl.pack(fill="x", pady=(0, 3))
         ctk.CTkLabel(ctrl, text="Search:", font=ctk.CTkFont(size=12)
                      ).pack(side="left")
         ctk.CTkEntry(ctrl, textvariable=self._search,
-                     placeholder_text="Tag, name, class…",
-                     height=28, width=190, font=ctk.CTkFont(size=12)
-                     ).pack(side="left", padx=(4, 8))
+                     placeholder_text="Tag, prefix, name, class, material…",
+                     height=28, font=ctk.CTkFont(size=12)
+                     ).pack(side="left", fill="x", expand=True, padx=(4, 8))
         ctk.CTkButton(ctrl, text="All", width=50, height=28,
                       command=self._check_all).pack(side="left", padx=(0, 4))
         ctk.CTkButton(ctrl, text="None", width=54, height=28,
                       fg_color="#3a3a3a", hover_color="#222",
-                      command=self._check_none).pack(side="left", padx=(0, 8))
-        self._prev_btn = ctk.CTkButton(
-            ctrl, text="👁 Preview", width=90, height=28,
-            fg_color="#1a3a2a", hover_color="#0a2a1a",
-            state="disabled",
-            command=self._preview_selected)
-        self._prev_btn.pack(side="left")
+                      command=self._check_none).pack(side="left", padx=(0, 4))
         self._count_lbl = ctk.CTkLabel(ctrl, text="0 / 0",
                                        font=ctk.CTkFont(size=12),
                                        text_color="gray")
         self._count_lbl.pack(side="right")
 
+        # Action buttons row
+        acts = ctk.CTkFrame(left, fg_color="transparent")
+        acts.pack(fill="x", pady=(0, 6))
+        self._prev_btn = ctk.CTkButton(
+            acts, text="👁 Preview", width=90, height=28,
+            fg_color="#1a3a2a", hover_color="#0a2a1a",
+            state="disabled",
+            command=self._preview_selected)
+        self._prev_btn.pack(side="left", padx=(0, 4))
+        ctk.CTkButton(acts, text="📋 Copy List", width=100, height=28,
+                      fg_color="#2a2a4a", hover_color="#1a1a3a",
+                      command=self._copy_checked).pack(side="left", padx=(0, 4))
+        ctk.CTkButton(acts, text="📥 Paste & Select", width=140, height=28,
+                      fg_color="#2a3a2a", hover_color="#1a2a1a",
+                      command=self._paste_select).pack(side="left")
+
         # Treeview
         tf = ctk.CTkFrame(left, fg_color=_BG_TABLE, corner_radius=6)
         tf.pack(fill="both", expand=True)
-        cols = ("check", "tag", "name", "ifc_class", "type_name", "parts")
+        cols = ("check", "tag", "name", "ifc_class", "type_name", "prefix", "parts")
         self._tree = ttk.Treeview(tf, columns=cols, show="headings",
                                   selectmode="browse", style="T.Treeview")
         for col, hdr_txt, w, stretch in [
-            ("check",     "",             28, False),
+            ("check",     "",             44, False),
             ("tag",       "Tag / Mark",  150, False),
             ("name",      "Name",        200, True),
             ("ifc_class", "IFC Class",   140, False),
             ("type_name", "Type",        160, True),
+            ("prefix",    "Prefix",      140, False),
             ("parts",     "Parts",        54, False),
         ]:
             self._tree.heading(col, text=hdr_txt, anchor="w")
@@ -663,9 +674,11 @@ class App(ctk.CTk):
         for r in rows:
             n = r.get("n_parts", 0)
             chk = "☑" if r["guid"] in self._checked else "☐"
+            display_mark = r.get("prefix") or r["tag"]
             self._tree.insert("", "end", iid=r["guid"],
-                              values=(chk, r["tag"], r["name"],
+                              values=(chk, display_mark, r["name"],
                                       r["ifc_class"], r["type_name"],
+                                      r.get("prefix", ""),
                                       f"[{n}]" if n else ""))
         self._update_count()
 
@@ -678,6 +691,11 @@ class App(ctk.CTk):
             or term in r["name"].lower()
             or term in r["ifc_class"].lower()
             or term in r["type_name"].lower()
+            or term in r.get("description", "").lower()
+            or term in r.get("predefined_type", "").lower()
+            or term in r.get("material", "").lower()
+            or term in r.get("prefix", "").lower()
+            or term in r.get("reference", "").lower()
         ]
         self._populate_tree(filtered)
 
@@ -726,6 +744,122 @@ class App(ctk.CTk):
         sel = self._tree.selection()
         self._prev_btn.configure(
             state="normal" if len(sel) == 1 else "disabled")
+
+    def _copy_checked(self) -> None:
+        """Copy all checked rows to clipboard as TSV (paste-ready for Excel)."""
+        rows = [r for r in self._all_rows if r["guid"] in self._checked]
+        if not rows:
+            messagebox.showinfo("Nothing checked", "Check at least one element first.")
+            return
+        header = "\t".join(["Tag", "Prefix", "Name", "IFC Class",
+                             "Predefined Type", "Type", "Reference", "Material", "Description"])
+        lines = [header]
+        for r in rows:
+            lines.append("\t".join([
+                r.get("tag",             ""),
+                r.get("prefix",          ""),
+                r.get("name",            ""),
+                r.get("ifc_class",       ""),
+                r.get("predefined_type", ""),
+                r.get("type_name",       ""),
+                r.get("reference",       ""),
+                r.get("material",        ""),
+                r.get("description",     ""),
+            ]))
+        tsv = "\n".join(lines)
+        self.clipboard_clear()
+        self.clipboard_append(tsv)
+        self._set_status(f"Copied {len(rows)} row(s) to clipboard — paste into Excel.")
+
+    def _paste_select(self) -> None:
+        """Open a dialog — paste marks/tags, auto-check all matching elements."""
+        if not self._all_rows:
+            messagebox.showinfo("No data", "Scan an IFC file first.")
+            return
+
+        dlg = tk.Toplevel(self)
+        dlg.title("Paste & Select")
+        dlg.geometry("440x360")
+        dlg.configure(bg="#1a1a1a")
+        dlg.resizable(True, True)
+        dlg.grab_set()
+
+        # ── pack bottom items FIRST so they're never pushed off-screen ──
+        btn_row = tk.Frame(dlg, bg="#1a1a1a")
+        btn_row.pack(side="bottom", fill="x", padx=14, pady=10)
+
+        result_lbl = tk.Label(dlg, text="", bg="#1a1a1a", fg="#7ab8d4",
+                              font=("Segoe UI", 10))
+        result_lbl.pack(side="bottom", anchor="w", padx=14)
+
+        first_only_var = tk.BooleanVar(value=False)
+        opt_row = tk.Frame(dlg, bg="#1a1a1a")
+        opt_row.pack(side="bottom", anchor="w", padx=14, pady=(0, 2))
+        tk.Checkbutton(opt_row, text="First match only (skip duplicates)",
+                       variable=first_only_var,
+                       bg="#1a1a1a", fg="#dce1e7", selectcolor="#111111",
+                       activebackground="#1a1a1a", activeforeground="#dce1e7",
+                       font=("Segoe UI", 10)).pack(side="left")
+
+        # ── label + text fill remaining top space ─────────────────────
+        tk.Label(dlg,
+                 text="Paste marks / tags below\n(one per line, or comma / tab / semicolon separated):",
+                 bg="#1a1a1a", fg="#dce1e7",
+                 font=("Segoe UI", 11), justify="left").pack(anchor="w", padx=14, pady=(14, 6))
+
+        txt = tk.Text(dlg, bg="#111111", fg="#dce1e7",
+                      insertbackground="#dce1e7",
+                      font=("Consolas", 11), relief="flat", wrap="word")
+        txt.pack(fill="both", expand=True, padx=14)
+
+        # Try pre-filling from clipboard
+        try:
+            clip = self.clipboard_get()
+            if clip.strip():
+                txt.insert("1.0", clip.strip())
+        except Exception:
+            pass
+
+        def _apply():
+            import re as _re
+            raw = txt.get("1.0", "end").strip()
+            tokens = {t.strip().lower() for t in _re.split(r"[\n,\t;]+", raw) if t.strip()}
+            if not tokens:
+                result_lbl.configure(text="Nothing to match.")
+                return
+
+            first_only = first_only_var.get()
+            seen_tokens: set[str] = set()
+            matched = 0
+            for r in self._all_rows:
+                matched_token = None
+                for tok in (r["tag"].lower(),
+                            r.get("prefix", "").lower(),
+                            r["name"].lower(),
+                            r.get("reference", "").lower()):
+                    if tok and tok in tokens:
+                        matched_token = tok
+                        break
+                if matched_token is None:
+                    continue
+                if first_only and matched_token in seen_tokens:
+                    continue
+                seen_tokens.add(matched_token)
+                self._checked.add(r["guid"])
+                matched += 1
+
+            self._apply_filter()
+            result_lbl.configure(text=f"Matched and checked {matched} element(s).")
+            self._update_count()
+
+        tk.Button(btn_row, text="  Apply  ", bg=_ACCENT, fg="#ffffff",
+                  activebackground=_ACCENT_DARK, relief="flat",
+                  font=("Segoe UI", 11, "bold"), cursor="hand2",
+                  command=_apply).pack(side="left", padx=(0, 8), ipady=6, ipadx=12)
+        tk.Button(btn_row, text="  Close  ", bg="#333333", fg="#dce1e7",
+                  activebackground="#222222", relief="flat",
+                  font=("Segoe UI", 11), cursor="hand2",
+                  command=dlg.destroy).pack(side="left", ipady=6, ipadx=12)
 
     # ── Selection → properties ────────────────────────────────────────────────
 
