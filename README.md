@@ -11,7 +11,9 @@ Made by **Path**.
 - **3D Preview** — view any selected element in an embedded viewer with Shaded, Wireframe, and Shaded+Edges render modes; supports rotate, pan, and zoom
 - **Converts to DXF** — exports all checked elements as individual `.dxf` files, one per element named after its Tag/Mark value
 - **Assembly decomposition** — `IfcElementAssembly` objects (trusses, frames, panels) are walked recursively and merged into a single DXF block per assembly
-- **AutoCAD-ready output** — geometry is exported as 3DFACE entities inside a named BLOCK (block name = element Tag); feature-edge visibility flags hide smooth interior triangle edges so only real corners and outlines appear in wireframe; full ACI colour per IFC class in all visual styles (Wireframe, Hidden, Shaded, Realistic, Conceptual); geometry is centred at the origin with correct extents so the element fills the viewport on open
+- **AutoCAD-ready output** — geometry is exported as 3DFACE entities inside a named BLOCK; feature-edge visibility flags hide smooth interior triangle edges; full ACI colour per IFC class in all visual styles (Wireframe, Hidden, Shaded, Realistic, Conceptual); geometry is centred at the origin with correct extents so the element fills the viewport on open
+- **Straight/flat orientation** — each exported element is automatically rotated so its longest axis (member length) lies along the global X axis and the cross-section height is along Z, regardless of the element's orientation in the building model; for assemblies with end plates and bolts, the rotation is computed from the main structural member only so the connection hardware does not skew the axis
+- **Prefix-based filenames** — output files and DXF block names use the element's Prefix (from `Pset_BeamCommon.Reference` or equivalent) when available, falling back to the Tag; e.g. `RB1001.dxf`
 - **Correct scale** — coordinates are always exported in millimetres regardless of the IFC project unit declaration
 
 ## Requirements
@@ -118,8 +120,9 @@ Download the pre-built installer (`IFC2DXF_Setup_v1.0.1.exe`) from the Releases 
 ## Changelog
 
 ### v1.0.1
-- **Prefix detection** — Scans `Pset_BeamCommon.Reference` (and equivalent psets) at load time using `should_inherit=True` so type-level properties are included. The Prefix value is now shown as a dedicated column in the element table.
-- **Prefix-based filenames** — DXF output files and block names now use the Prefix when available (e.g. `RB1001.dxf`), falling back to Tag only when no prefix is found.
+- **Straight/flat DXF output** — Elements are automatically rotated so the member length lies along X and the cross-section height is along Z. For assemblies, the rotation is derived from the largest part only (the main member), so end plates and bolts do not skew the axis.
+- **Prefix detection** — Scans `Pset_BeamCommon.Reference` (and equivalent psets) at load time using `should_inherit=True` so type-level properties are included. The Prefix value is shown as a dedicated column in the element table.
+- **Prefix-based filenames** — DXF output files and block names use the Prefix when available (e.g. `RB1001.dxf`), falling back to Tag only when no prefix is found.
 - **Expanded search** — Search bar now matches against Prefix, Material, Description, and Predefined Type in addition to Tag, Name, and IFC Class.
 - **Paste & Select** — New dialog lets you paste a list of marks/references (newline, comma, tab, or semicolon separated) and auto-checks all matching elements. Includes a "First match only" option to skip duplicates.
 - **Copy List** — Copies all checked rows to the clipboard as TSV (Tab-Separated Values) ready to paste into Excel. Columns: Tag, Prefix, Name, IFC Class, Predefined Type, Type, Reference, Material, Description.

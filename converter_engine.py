@@ -431,6 +431,59 @@ def get_preview_geometry(model, guid: str) -> Dict[str, Any]:
 # Conversion Engine
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _align_rotation(parts_data):
+    """
+    Compute a 3×3 rotation matrix using PCA on the LARGEST part only.
+
+    Why largest part only
+    ---------------------
+    An assembly often has bolt clusters at both ends.  If we include those in
+    the PCA the computed "longest axis" gets pulled diagonally toward the bolt
+    groups, leaving the exported DXF at a slight angle.  The main structural
+    member always has far more vertices than any individual bolt or plate, so
+    restricting the PCA to the single biggest part gives a stable, true axis.
+
+    Axis assignment
+    ---------------
+    PC1 (most variance  = length)   → X   (member runs left → right)
+    PC2 (second = height of section)→ Z   (web height goes up)
+    PC3 (least = width of flange)   → Y   (into the screen)
+    """
+    import numpy as _np
+
+    # Pick the part with the most vertices as the "main member"
+    main_verts = max(parts_data, key=lambda p: len(p[1]))[1]
+
+    pts = _np.array(main_verts, dtype=float)
+    if len(pts) < 3:
+        return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+
+    # Centre the sample
+    pts -= pts.mean(axis=0)
+
+    cov = (pts.T @ pts) / max(len(pts) - 1, 1)
+    eigenvalues, eigenvectors = _np.linalg.eigh(cov)   # ascending
+    order = _np.argsort(eigenvalues)[::-1]              # descending
+
+    pc1 = eigenvectors[:, order[0]]   # length  → X
+    pc2 = eigenvectors[:, order[1]]   # height  → Z
+    pc3 = eigenvectors[:, order[2]]   # width   → Y
+
+    R = _np.array([pc1, pc3, pc2])    # rows = new X, Y, Z expressed in old coords
+    if _np.linalg.det(R) < 0:
+        R[1] = -R[1]
+
+    return R.tolist()
+
+
+def _apply_rotation(R, v):
+    """Rotate a single vertex (x,y,z) by 3×3 matrix R (list-of-lists)."""
+    x, y, z = v
+    return (R[0][0]*x + R[0][1]*y + R[0][2]*z,
+            R[1][0]*x + R[1][1]*y + R[1][2]*z,
+            R[2][0]*x + R[2][1]*y + R[2][2]*z)
+
+
 def _safe_filename(tag: str) -> str:
     """Sanitise a tag string so it can be used as a Windows/Linux filename."""
     safe = re.sub(r'[\\/:*?"<>|]', "_", tag).strip(" .")
@@ -577,16 +630,26 @@ class ConversionEngine:
                 skipped += 1
                 continue
 
-            # ── Centre geometry at origin (bounding-box midpoint) ─────
+            # ── Centre geometry at bounding-box midpoint ─────────────
             xs = [v[0] for v in all_verts_flat]
             ys = [v[1] for v in all_verts_flat]
             zs = [v[2] for v in all_verts_flat]
             cx = (min(xs) + max(xs)) / 2
             cy = (min(ys) + max(ys)) / 2
             cz = (min(zs) + max(zs)) / 2
-            hw = (max(xs) - min(xs)) / 2
-            hh = (max(ys) - min(ys)) / 2
-            hd = (max(zs) - min(zs)) / 2
+
+            # ── Align: PCA on largest part → length along X ──────────
+            centred_all = [(x-cx, y-cy, z-cz) for x, y, z in all_verts_flat]
+            R = _align_rotation(parts_data)
+
+            # Recompute extents in the rotated frame
+            rot_all = [_apply_rotation(R, v) for v in centred_all]
+            rxs = [v[0] for v in rot_all]
+            rys = [v[1] for v in rot_all]
+            rzs = [v[2] for v in rot_all]
+            hw = (max(rxs) - min(rxs)) / 2
+            hh = (max(rys) - min(rys)) / 2
+            hd = (max(rzs) - min(rzs)) / 2
 
             # Set drawing extents so AutoCAD zoom-extents works correctly
             doc.header["$EXTMIN"] = (-hw, -hh, -hd)
@@ -597,7 +660,9 @@ class ConversionEngine:
             # ── Pass 2: build feature-edge 3DFACEs inside block ──────
             mesh_count = 0
             for part, raw_verts, ff in parts_data:
-                verts = [(x-cx, y-cy, z-cz) for x, y, z in raw_verts]
+                # Centre then rotate to principal axes
+                verts = [_apply_rotation(R, (x-cx, y-cy, z-cz))
+                         for x, y, z in raw_verts]
 
                 part_color = _color_for(part)
                 part_layer = re.sub(r"[^A-Za-z0-9_\-]", "_", part.is_a())
