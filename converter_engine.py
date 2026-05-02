@@ -18,12 +18,14 @@ from typing import Any, Callable, Dict, List
 
 import os
 import re
+import numpy as np
 import ifcopenshell
 import ifcopenshell.geom
 import ifcopenshell.util.element
 import ifcopenshell.util.unit
 import ezdxf
 from ezdxf.math import Vec3
+from ezdxf.render import MeshBuilder
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -191,6 +193,19 @@ def _unit_scale_to_mm(model) -> float:
     With USE_WORLD_COORDS=True ifcopenshell always returns SI metres,
     so the scale is always ×1000 regardless of the IFC project unit."""
     return 1000.0
+
+
+# IFC classes to skip entirely (bolts, nuts, washers, fasteners)
+_SKIP_CLASSES = {
+    "IfcFastener",
+    "IfcMechanicalFastener",
+    "IfcElementComponent",
+    "IfcDiscreteAccessory",
+}
+
+# Smallest bounding-box dimension (mm) a part must have to be included.
+# Parts smaller than this are bolt holes, washers, nuts — skip them.
+_MIN_PART_SIZE_MM = 20.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -504,20 +519,24 @@ class ConversionEngine:
 
     def __init__(
         self,
-        ifc_path:    str,
-        output_dir:  str,          # folder — one .dxf per element
-        guids:       List[str],
-        progress_cb: Callable[[int], None],
-        status_cb:   Callable[[str], None],
-        complete_cb: Callable[[bool, str], None],
+        ifc_path:        str,
+        output_dir:      str,          # folder — one .dxf per element
+        guids:           List[str],
+        progress_cb:     Callable[[int], None],
+        status_cb:       Callable[[str], None],
+        complete_cb:     Callable[[bool, str], None],
+        decimate_ratio:  float = 1.0,  # 1.0 = full detail, 0.3 = keep 30% of faces
+        skip_fasteners:  bool  = False, # skip bolts, holes, nuts, washers
     ) -> None:
-        self.ifc_path   = ifc_path
-        self.output_dir = output_dir
-        self.guids      = set(guids)
-        self._progress  = progress_cb
-        self._status    = status_cb
-        self._complete  = complete_cb
-        self._cancelled = False
+        self.ifc_path        = ifc_path
+        self.output_dir      = output_dir
+        self.guids           = set(guids)
+        self._progress       = progress_cb
+        self._status         = status_cb
+        self._complete       = complete_cb
+        self._decimate       = max(0.01, min(1.0, decimate_ratio))
+        self._skip_fasteners = skip_fasteners
+        self._cancelled      = False
 
     def cancel(self) -> None:
         self._cancelled = True
@@ -591,20 +610,17 @@ class ConversionEngine:
             bname = re.sub(r"[^A-Za-z0-9_\-]", "_", label)
             blk = doc.blocks.new(name=bname)
 
-            import math as _math
-            CREASE = _math.radians(25)
-
-            def _tri_normal(a, b, c):
-                ax, ay, az = b[0]-a[0], b[1]-a[1], b[2]-a[2]
-                bx, by, bz = c[0]-a[0], c[1]-a[1], c[2]-a[2]
-                nx, ny, nz = ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx
-                l = _math.sqrt(nx*nx + ny*ny + nz*nz)
-                return (nx/l, ny/l, nz/l) if l > 1e-12 else (0.0, 0.0, 1.0)
 
             # ── Pass 1: collect geometry from all parts ───────────────
             parts_data = []
             all_verts_flat = []
             for part in geo_sources:
+                # Skip bolts / fasteners / holes if user requested
+                if self._skip_fasteners:
+                    if any(part.is_a(cls) for cls in _SKIP_CLASSES):
+                        self._status(f"    ↷ skipped fastener: {_get_tag(part)}")
+                        continue
+
                 try:
                     shape = ifcopenshell.geom.create_shape(gs, part)
                 except Exception as exc:
@@ -621,6 +637,19 @@ class ConversionEngine:
 
                 verts = [(vf[i]*scale, vf[i+1]*scale, vf[i+2]*scale)
                          for i in range(0, len(vf), 3)]
+
+                # Skip tiny parts (bolt holes, washers) when filter is on
+                if self._skip_fasteners and verts:
+                    xs = [v[0] for v in verts]
+                    ys = [v[1] for v in verts]
+                    zs = [v[2] for v in verts]
+                    bbox_max = max(
+                        max(xs)-min(xs), max(ys)-min(ys), max(zs)-min(zs))
+                    if bbox_max < _MIN_PART_SIZE_MM:
+                        self._status(
+                            f"    ↷ skipped tiny part ({bbox_max:.1f} mm): {_get_tag(part)}")
+                        continue
+
                 all_verts_flat.extend(verts)
                 parts_data.append((part, verts, ff))
 
@@ -657,7 +686,9 @@ class ConversionEngine:
             doc.header["$LIMMIN"] = (-hw, -hh)
             doc.header["$LIMMAX"] = ( hw,  hh)
 
-            # ── Pass 2: build feature-edge 3DFACEs inside block ──────
+            # ── Pass 2: build POLYFACE MESH inside block ─────────────
+            # One POLYFACE MESH per part — vertices stored once (shared),
+            # far smaller than one 3DFACE per triangle.
             mesh_count = 0
             for part, raw_verts, ff in parts_data:
                 # Centre then rotate to principal axes
@@ -674,31 +705,127 @@ class ConversionEngine:
                         for i in range(0, len(ff), 3)
                         if ff[i] < nv and ff[i+1] < nv and ff[i+2] < nv]
 
-                normals = [_tri_normal(verts[fi], verts[fj], verts[fk])
-                           for fi, fj, fk in tris]
+                if not tris:
+                    continue
 
-                edge_normals: Dict[tuple, List] = {}
-                for ti, (fi, fj, fk) in enumerate(tris):
-                    for a, b in ((fi, fj), (fj, fk), (fk, fi)):
-                        edge_normals.setdefault((min(a,b), max(a,b)), []).append(normals[ti])
+                # Deduplicate vertices — merge near-coincident points
+                # decimals=1 (0.1 mm tolerance) ensures shared vertices merge
+                raw_arr = np.array(verts, dtype=np.float64)
+                unique_verts, inverse = np.unique(
+                    np.round(raw_arr, decimals=1), axis=0, return_inverse=True)
+                dedup_faces = [
+                    (int(inverse[fi]), int(inverse[fj]), int(inverse[fk]))
+                    for fi, fj, fk in tris
+                ]
 
-                def _feature(a, b):
-                    ns = edge_normals.get((min(a,b), max(a,b)), [])
-                    if len(ns) != 2:
-                        return True
-                    dot = max(-1.0, min(1.0, sum(ns[0][i]*ns[1][i] for i in range(3))))
-                    return _math.acos(dot) > CREASE
+                # Optional mesh decimation — reduces triangle count for smaller files
+                if self._decimate < 1.0 and len(dedup_faces) > 20:
+                    try:
+                        import trimesh as _trimesh
+                        target = max(10, int(len(dedup_faces) * self._decimate))
+                        _m = _trimesh.Trimesh(
+                            vertices=unique_verts, faces=dedup_faces, process=False)
+                        _m = _m.simplify_quadric_decimation(target)
+                        unique_verts = np.array(_m.vertices, dtype=np.float64)
+                        dedup_faces  = [tuple(int(x) for x in f) for f in _m.faces]
+                    except Exception as _exc:
+                        self._status(f"    decimation skipped: {_exc}")
 
-                for fi, fj, fk in tris:
-                    inv = 4
-                    if not _feature(fi, fj): inv |= 1
-                    if not _feature(fj, fk): inv |= 2
-                    if not _feature(fk, fi): inv |= 8
+                # ── 3DFACE (shading) + LINE (wireframe) ──────────────
+                # All 3DFACE edges hidden — shading only.
+                # LINE entities for:
+                #   • sharp crease edges  > 30°  (structural corners)
+                #   • fillet boundary: seam where flat region meets fillet region
+                #   • outer boundary edges (single adjacent face)
+                #
+                # Key insight: classify each face as "in a flat region" by checking
+                # whether it has at least one SMOOTH interior edge (dihedral < 5°).
+                # Flat plate faces always have smooth neighbours (other flat faces).
+                # Fillet faces have NO smooth neighbours — every edge is 5°+ because
+                # consecutive fillet triangles have ~10° dihedral between them.
+                # So the boundary is reliably found where face_in_flat changes.
+                import math as _math
+                _CREASE = _math.radians(30)   # sharp structural corner
+                _SMOOTH = _math.radians(5)    # edge is "smooth" (interior flat) below this
+
+                def _fnorm(a, b, c):
+                    ax,ay,az = b[0]-a[0],b[1]-a[1],b[2]-a[2]
+                    bx,by,bz = c[0]-a[0],c[1]-a[1],c[2]-a[2]
+                    nx=ay*bz-az*by; ny=az*bx-ax*bz; nz=ax*by-ay*bx
+                    l=_math.sqrt(nx*nx+ny*ny+nz*nz)
+                    return (nx/l,ny/l,nz/l) if l>1e-12 else (0.,0.,1.)
+
+                vt = [tuple(float(x) for x in v) for v in unique_verts]
+                fnorms = [_fnorm(vt[fi], vt[fj], vt[fk]) for fi,fj,fk in dedup_faces]
+
+                # Build edge → adjacent face list
+                edge_f: Dict[tuple, list] = {}
+                for t, (fi, fj, fk) in enumerate(dedup_faces):
+                    for a, b in ((fi,fj),(fj,fk),(fk,fi)):
+                        key = (min(a,b), max(a,b))
+                        edge_f.setdefault(key, []).append(t)
+
+                # Compute dihedral angle per interior edge
+                edge_ang: Dict[tuple, float] = {}
+                for key, fi_lst in edge_f.items():
+                    if len(fi_lst) == 2:
+                        f0, f1 = fi_lst
+                        dot = max(-1., min(1.,
+                            sum(fnorms[f0][i]*fnorms[f1][i] for i in range(3))))
+                        edge_ang[key] = _math.acos(dot)
+
+                # Per-face edge list (for smooth-neighbour check)
+                face_edges: list = [[] for _ in range(len(dedup_faces))]
+                for key, fi_lst in edge_f.items():
+                    for fi in fi_lst:
+                        face_edges[fi].append(key)
+
+                # A face is "in a flat region" if it has ≥1 smooth interior edge.
+                # Fillet/curved faces have NO smooth neighbours → face_in_flat=False.
+                face_in_flat = [
+                    any(edge_ang.get(e, 999.) < _SMOOTH for e in face_edges[t])
+                    for t in range(len(dedup_faces))
+                ]
+
+                # Write ALL faces (shading, edges invisible)
+                for fi, fj, fk in dedup_faces:
                     blk.add_3dface(
-                        [verts[fi], verts[fj], verts[fk], verts[fk]],
+                        [vt[fi], vt[fj], vt[fk], vt[fk]],
                         dxfattribs={"layer": part_layer, "color": part_color,
-                                    "invisible_edges": inv},
+                                    "invisible_edges": 15},
                     )
+
+                # Add LINEs at visible edges
+                seen: set = set()
+                for t, (fi, fj, fk) in enumerate(dedup_faces):
+                    for a, b in ((fi,fj),(fj,fk),(fk,fi)):
+                        key = (min(a,b), max(a,b))
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        fi_lst = edge_f.get(key, [])
+                        ang    = edge_ang.get(key, 0.)
+
+                        if len(fi_lst) == 1:
+                            show = True                  # outer boundary
+                        elif len(fi_lst) == 2:
+                            if ang > _CREASE:
+                                show = True              # sharp structural corner
+                            elif ang > _SMOOTH:
+                                # Interior edge with some angle: draw only at
+                                # the seam where flat region meets fillet region
+                                show = (face_in_flat[fi_lst[0]] !=
+                                        face_in_flat[fi_lst[1]])
+                            else:
+                                show = False             # smooth interior — hide
+                        else:
+                            show = False
+
+                        if show:
+                            blk.add_line(vt[a], vt[b],
+                                dxfattribs={"layer": part_layer,
+                                            "color": part_color})
+
                 mesh_count += 1
 
             if mesh_count == 0:

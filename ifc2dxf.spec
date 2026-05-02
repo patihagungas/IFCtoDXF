@@ -25,10 +25,16 @@ ctk_datas, ctk_binaries, ctk_hiddenimports = collect_all("customtkinter")
 # ── Gather numpy (required by ifcopenshell.sql) ───────────────────────────────
 np_datas, np_binaries, np_hiddenimports = collect_all("numpy")
 
+# ── Gather trimesh (optional mesh decimation) ─────────────────────────────────
+try:
+    tm_datas, tm_binaries, tm_hiddenimports = collect_all("trimesh")
+except Exception:
+    tm_datas, tm_binaries, tm_hiddenimports = [], [], []
+
 # ── Merge ─────────────────────────────────────────────────────────────────────
-all_datas    = ifc_datas    + ctk_datas + np_datas + [("P.ico", ".")]
-all_binaries = ifc_binaries + ctk_binaries + np_binaries
-all_hidden   = ifc_hiddenimports + ctk_hiddenimports + np_hiddenimports + [
+all_datas    = ifc_datas    + ctk_datas + np_datas + tm_datas + [("P.ico", ".")]
+all_binaries = ifc_binaries + ctk_binaries + np_binaries + tm_binaries
+all_hidden   = ifc_hiddenimports + ctk_hiddenimports + np_hiddenimports + tm_hiddenimports + [
     "ifcopenshell",
     "ifcopenshell.geom",
     "ifcopenshell.util",
@@ -49,6 +55,7 @@ all_hidden   = ifc_hiddenimports + ctk_hiddenimports + np_hiddenimports + [
     "numpy",
     "numpy.core",
     "numpy.core._multiarray_umath",
+    "trimesh",
 ]
 
 block_cipher = None
