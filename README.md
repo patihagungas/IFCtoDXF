@@ -52,7 +52,7 @@ Made by **Path**.
 
 ### Option 2 — Windows installer
 
-Download the pre-built installer (`IFC2DXF_Setup_v1.0.1.exe`) from the Releases page and run it. No Python installation required.
+Download the pre-built installer (`IFC2DXF_Setup_v1.0.2.exe`) from the Releases page and run it. No Python installation required.
 
 ### Option 3 — Build the installer yourself
 
@@ -86,9 +86,9 @@ Download the pre-built installer (`IFC2DXF_Setup_v1.0.1.exe`) from the Releases 
 
 | Feature | Detail |
 |---|---|
-| Entity type | `3DFACE` (triangulated mesh) |
+| Entity type | `3DFACE` (all edges hidden) + `LINE` at feature edges |
 | Block name | Element Tag/Mark |
-| Edge visibility | Feature-edge only — smooth interior edges hidden, real corners visible |
+| Edge visibility | Smooth interior edges hidden; sharp structural corners and fillet-boundary seams visible as LINE entities |
 | Colour | ACI per IFC class (walls=red, columns=cyan, beams=green, …) |
 | Units | Millimetres (`$INSUNITS = 4`) |
 | Origin | Bounding-box centre of element geometry |
@@ -112,12 +112,21 @@ Download the pre-built installer (`IFC2DXF_Setup_v1.0.1.exe`) from the Releases 
 | Package | Purpose |
 |---|---|
 | `ifcopenshell` | IFC parsing and geometry kernel |
-| `numpy` | Required by ifcopenshell |
+| `numpy` | Vertex deduplication and edge-angle computation |
 | `ezdxf >= 1.1.0` | DXF read/write |
 | `customtkinter >= 5.2.0` | Modern dark-themed UI framework |
+| `trimesh` | Optional mesh decimation (Mesh Quality setting) |
 | `pyinstaller >= 6.0` | Build standalone executable (dev only) |
 
 ## Changelog
+
+### v1.0.2
+- **Smaller DXF files** — Geometry is now exported as `3DFACE` entities with all edges hidden (for 3D shading/colour) plus separate `LINE` entities only at visible feature edges. This dramatically reduces file size vs the previous approach where every triangle edge was visible.
+- **Cleaner 2D Wireframe** — Smooth interior surface edges (flat-to-flat transitions < 5°) are no longer drawn as lines. Only sharp structural corners (> 30°) and fillet-boundary seams are shown, giving a clean engineering drawing look.
+- **Fillet boundary line** — A single `LINE` is drawn at the seam where a flat plate region meets a fillet/curved region (detected by checking whether each face has any smooth neighbour). This matches standard CAD representation of rolled steel sections.
+- **Mesh Quality setting** — New dropdown in the GUI: Full (100%), High (70%), Medium (50%), Low (30%), Very Low (15%). Lower settings use `trimesh` quadric decimation to reduce face count and file size further.
+- **Skip Fasteners / Bolts checkbox** — When checked, all `IfcFastener`, `IfcMechanicalFastener`, `IfcElementComponent`, and `IfcDiscreteAccessory` elements are skipped. Parts with a bounding-box dimension under 20 mm are also skipped as bolt-hole artefacts.
+- **Vertex deduplication** — Shared vertices are now merged at 0.1 mm tolerance before edge-adjacency is computed, ensuring correct crease-angle detection even with floating-point jitter in IFC coordinates.
 
 ### v1.0.1
 - **Straight/flat DXF output** — Elements are automatically rotated so the member length lies along X and the cross-section height is along Z. For assemblies, the rotation is derived from the largest part only (the main member), so end plates and bolts do not skew the axis.

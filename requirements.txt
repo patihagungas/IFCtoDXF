@@ -13,4 +13,6 @@
 ifcopenshell          # IFC parsing + geometry kernel
 ezdxf>=1.1.0          # DXF read/write
 customtkinter>=5.2.0  # Modern Tkinter UI framework
+numpy                 # Array math (vertex deduplication, edge detection)
+trimesh               # Optional mesh decimation (Mesh Quality setting)
 pyinstaller>=6.0      # Packaging (dev-only, not needed at runtime)

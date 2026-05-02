@@ -479,6 +479,34 @@ class App(ctk.CTk):
         ctk.CTkButton(r2, text="Browse", width=80, height=34,
                       command=self._browse_outdir).pack(side="left")
 
+        r3 = ctk.CTkFrame(wrap, fg_color="transparent")
+        r3.pack(fill="x", pady=2)
+        ctk.CTkLabel(r3, text="Mesh Quality", font=ctk.CTkFont(size=13, weight="bold"),
+                     width=110, anchor="w").pack(side="left")
+        self._quality_var = ctk.StringVar(value="Full (100%)")
+        ctk.CTkOptionMenu(
+            r3,
+            variable=self._quality_var,
+            values=["Full (100%)", "High (70%)", "Medium (40%)", "Low (20%)", "Very Low (10%)"],
+            width=180, height=34,
+            font=ctk.CTkFont(size=12),
+        ).pack(side="left", padx=(8, 0))
+        ctk.CTkLabel(r3,
+                     text="  ← reduce if DXF files are too large",
+                     font=ctk.CTkFont(size=11), text_color="gray"
+                     ).pack(side="left", padx=(6, 0))
+
+        r4 = ctk.CTkFrame(wrap, fg_color="transparent")
+        r4.pack(fill="x", pady=2)
+        ctk.CTkLabel(r4, text="", width=110).pack(side="left")   # indent to align
+        self._skip_fasteners_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            r4,
+            text="Skip bolts, holes & fasteners  (smaller files, cleaner geometry)",
+            variable=self._skip_fasteners_var,
+            font=ctk.CTkFont(size=12),
+        ).pack(side="left", padx=(8, 0))
+
         self._div(wrap)
 
         # ── Split: table (left) + properties (right) ──────────────────
@@ -973,6 +1001,14 @@ class App(ctk.CTk):
 
     # ── Conversion ────────────────────────────────────────────────────────────
 
+    _QUALITY_RATIOS = {
+        "Full (100%)":     1.00,
+        "High (70%)":      0.70,
+        "Medium (40%)":    0.40,
+        "Low (20%)":       0.20,
+        "Very Low (10%)":  0.10,
+    }
+
     def _start_conversion(self) -> None:
         ifc   = self._ifc_path.get().strip()
         outd  = self._out_dir.get().strip()
@@ -997,13 +1033,18 @@ class App(ctk.CTk):
         self._log(f"Items  : {len(guids)} → one .dxf file per tag")
         self._log("─" * 52)
 
+        quality = self._quality_var.get()
+        ratio   = self._QUALITY_RATIOS.get(quality, 1.0)
+
         self._engine = ConversionEngine(
-            ifc_path    = ifc,
-            output_dir  = outd,
-            guids       = guids,
-            progress_cb = lambda p: self.after(0, self._progress.set, p/100),
-            status_cb   = lambda t: self.after(0, self._cb_status, t),
-            complete_cb = lambda ok, m: self.after(0, self._cb_complete, ok, m),
+            ifc_path        = ifc,
+            output_dir      = outd,
+            guids           = guids,
+            progress_cb     = lambda p: self.after(0, self._progress.set, p/100),
+            status_cb       = lambda t: self.after(0, self._cb_status, t),
+            complete_cb     = lambda ok, m: self.after(0, self._cb_complete, ok, m),
+            decimate_ratio  = ratio,
+            skip_fasteners  = self._skip_fasteners_var.get(),
         )
         threading.Thread(target=self._engine.run, daemon=True).start()
 
